@@ -100,6 +100,8 @@
 
 #define USBIN_DCIN_CFG_REG		0x12
 #define USBIN_SUSPEND_VIA_COMMAND_BIT	BIT(6)
+#define OTG_CURRENT_LIMIT_1000MA        0x0C
+#define OTG_CURRENT_LIMIT_MASK          SMB135X_MASK(3, 2)
 
 #define CFG_14_REG			0x14
 #define CHG_EN_BY_PIN_BIT			BIT(7)
@@ -148,6 +150,7 @@
 #define IRQ_CFG_REG			0x07
 #define IRQ_BAT_HOT_COLD_HARD_BIT	BIT(7)
 #define IRQ_BAT_HOT_COLD_SOFT_BIT	BIT(6)
+#define IRQ_OTG_OVER_CURRENT_BIT	BIT(4)
 #define IRQ_USBIN_UV_BIT		BIT(2)
 #define IRQ_INTERNAL_TEMPERATURE_BIT	BIT(0)
 
@@ -253,6 +256,7 @@
 #define IRQ_E_USB_UV_BIT		BIT(0)
 
 #define IRQ_F_REG			0x55
+#define IRQ_F_OTG_OC_BIT                BIT(6)
 #define IRQ_F_POWER_OK_BIT		BIT(0)
 
 #define IRQ_G_REG			0x56
@@ -409,6 +413,7 @@ struct smb135x_chg {
 	unsigned long			float_charge_start_time;
 	struct delayed_work		aicl_check_work;
 	struct delayed_work		src_removal_work;
+	struct delayed_work		ocp_clear_work;
 	bool				aicl_disabled;
 	bool				aicl_weak_detect;
 	int				charger_rate;
@@ -2135,10 +2140,9 @@ static bool elapsed_msec_greater(struct timeval *start_time,
 }
 
 #define MAX_STEP_MS		10
-static int smb135x_chg_otg_regulator_enable(struct regulator_dev *rdev)
+static int smb135x_chg_otg_enable(struct smb135x_chg *chip)
 {
 	int rc = 0;
-	struct smb135x_chg *chip = rdev_get_drvdata(rdev);
 	int restart_count = 0;
 	struct timeval time_a, time_b, time_c, time_d;
 
@@ -2215,11 +2219,26 @@ restart_from_disable:
 	return rc;
 }
 
+static int smb135x_chg_otg_regulator_enable(struct regulator_dev *rdev)
+{
+	struct smb135x_chg *chip = rdev_get_drvdata(rdev);
+	return smb135x_chg_otg_enable(chip);
+}
+
+static void ocp_clear_work(struct work_struct *work)
+{
+	struct smb135x_chg *chip =
+		container_of(work, struct smb135x_chg,
+				ocp_clear_work.work);
+	smb135x_chg_otg_enable(chip);
+}
+
 static int smb135x_chg_otg_regulator_disable(struct regulator_dev *rdev)
 {
 	int rc = 0;
 	struct smb135x_chg *chip = rdev_get_drvdata(rdev);
 
+	cancel_delayed_work_sync(&chip->ocp_clear_work);
 	rc = smb135x_masked_write(chip, CMD_CHG_REG, OTG_EN, 0);
 	if (rc < 0)
 		dev_err(chip->dev, "Couldn't disable OTG mode rc=%d\n", rc);
@@ -2788,6 +2807,21 @@ static int power_ok_handler(struct smb135x_chg *chip, u8 rt_stat)
 	return 0;
 }
 
+#define MAX_OTG_RETRY	3
+static int otg_oc_handler(struct smb135x_chg *chip, u8 rt_stat)
+{
+	if (!(rt_stat & IRQ_F_OTG_OC_BIT)) {
+		pr_err("Spurious OTG OC irq\n");
+		return 0;
+	}
+
+	schedule_delayed_work(&chip->ocp_clear_work,
+		msecs_to_jiffies(0));
+
+	pr_err("rt_stat = 0x%02x\n", rt_stat);
+	return 0;
+}
+
 static int handle_dc_removal(struct smb135x_chg *chip)
 {
 	if (chip->dc_psy_type == POWER_SUPPLY_TYPE_WIRELESS) {
@@ -3320,6 +3354,7 @@ static struct irq_handler_info handlers[] = {
 			},
 			{
 				.name		= "otg_oc",
+				.smb_irq	= otg_oc_handler,
 			},
 		},
 	},
@@ -3855,6 +3890,10 @@ static int smb135x_hw_init(struct smb135x_chg *chip)
 	rc = smb135x_masked_write(chip, USBIN_DCIN_CFG_REG,
 		USBIN_SUSPEND_VIA_COMMAND_BIT, USBIN_SUSPEND_VIA_COMMAND_BIT);
 
+	/* Set the OTG Current Limit */
+	rc = smb135x_masked_write(chip, USBIN_DCIN_CFG_REG,
+		OTG_CURRENT_LIMIT_MASK, OTG_CURRENT_LIMIT_1000MA);
+
 	/* set the float voltage */
 	if (chip->vfloat_mv != -EINVAL) {
 		rc = smb135x_float_voltage_set(chip, chip->vfloat_mv);
@@ -4013,6 +4052,7 @@ static int smb135x_hw_init(struct smb135x_chg *chip)
 		rc = smb135x_write(chip, IRQ_CFG_REG,
 			IRQ_BAT_HOT_COLD_HARD_BIT
 			| IRQ_BAT_HOT_COLD_SOFT_BIT
+			| IRQ_OTG_OVER_CURRENT_BIT
 			| IRQ_INTERNAL_TEMPERATURE_BIT
 			| IRQ_USBIN_UV_BIT);
 
@@ -4913,6 +4953,8 @@ static int smb135x_charger_probe(struct i2c_client *client,
 					src_removal_work);
 	INIT_DELAYED_WORK(&chip->rate_check_work,
 					rate_check_work);
+	INIT_DELAYED_WORK(&chip->ocp_clear_work,
+					ocp_clear_work);
 
 	mutex_init(&chip->path_suspend_lock);
 	mutex_init(&chip->current_change_lock);
