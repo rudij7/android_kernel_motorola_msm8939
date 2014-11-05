@@ -30,6 +30,14 @@ struct panel_id {
 #define MDSS_DSI_RST_SEQ_LEN	10
 #define MDSS_MDP_MAX_FETCH 12
 
+enum cabc_mode {
+	CABC_UI_MODE = 0,
+	CABC_ST_MODE,
+	CABC_MV_MODE,
+	CABC_OFF_MODE,
+	CABC_MODE_MAX_NUM
+};
+
 /* panel type list */
 #define NO_PANEL		0xffff	/* No Panel */
 #define MDDI_PANEL		1	/* MDDI */
@@ -183,6 +191,7 @@ struct mdss_intf_recovery {
  * @ MDSS_EVENT_DSI_PANEL_STATUS:Event to check the panel status
  *				<= 0: panel check fail
  *				>  0: panel check success
+ * @MDSS_EVENT_SET_CABC: Set CABC mode, for Motorola "Dynamic CABC" feature.
  */
 enum mdss_intf_events {
 	MDSS_EVENT_RESET = 1,
@@ -206,6 +215,7 @@ enum mdss_intf_events {
 	MDSS_EVENT_DSI_DYNAMIC_SWITCH,
 	MDSS_EVENT_REGISTER_RECOVERY_HANDLER,
 	MDSS_EVENT_DSI_PANEL_STATUS,
+	MDSS_EVENT_SET_CABC,
 };
 
 struct lcd_panel_info {
@@ -430,6 +440,9 @@ struct mdss_panel_info {
 
 	/* debugfs structure for the panel */
 	struct mdss_panel_debugfs_info *debugfs_info;
+
+	bool dynamic_cabc_enabled;
+	enum cabc_mode cabc_mode;
 };
 
 struct mdss_panel_data {
@@ -654,6 +667,22 @@ int mdss_panel_get_boot_cfg(void);
  * returns true if mdss is ready, else returns false.
  */
 bool mdss_is_ready(void);
+
+/**
+ * mdss_panel_map_cabc_name() - get panel CABC mode name
+ *
+ * returns name if mapping succeeds, else returns NULL.
+ */
+static const char *cabc_mode_names[CABC_MODE_MAX_NUM] = {
+	"UI", "ST", "MV", "OFF"
+};
+static inline const char *mdss_panel_map_cabc_name(int mode)
+{
+	if (mode >= CABC_UI_MODE && mode < CABC_MODE_MAX_NUM)
+		return cabc_mode_names[mode];
+	return NULL;
+}
+
 #ifdef CONFIG_FB_MSM_MDSS
 int mdss_panel_debugfs_init(struct mdss_panel_info *panel_info);
 void mdss_panel_debugfs_cleanup(struct mdss_panel_info *panel_info);
