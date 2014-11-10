@@ -105,6 +105,11 @@ static unsigned int enable_dbg_log = 1;
 module_param(enable_dbg_log, uint, S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(enable_dbg_log, "Debug buffer events");
 
+static bool host_mode_disable;
+module_param(host_mode_disable , bool, S_IRUGO | S_IWUSR);
+MODULE_PARM_DESC(host_mode_disable,
+	"Whether to disable Host Mode");
+
 static DECLARE_COMPLETION(pmic_vbus_init);
 static struct msm_otg *the_msm_otg;
 static bool debug_aca_enabled;
@@ -3101,7 +3106,9 @@ static void msm_otg_init_sm(struct msm_otg *motg)
 			else
 				clear_bit(B_SESS_VLD, &motg->inputs);
 		} else if (pdata->otg_control == OTG_PMIC_CONTROL) {
-			if (pdata->pmic_id_irq) {
+			if (host_mode_disable)
+				set_bit(ID, &motg->inputs);
+			else if (pdata->pmic_id_irq) {
 				if (msm_otg_read_pmic_id_state(motg))
 					set_bit(ID, &motg->inputs);
 				else
@@ -4235,6 +4242,11 @@ static void msm_id_status_w(struct work_struct *w)
 	int id_state = 0;
 
 	dev_dbg(motg->phy.dev, "ID status_w\n");
+
+	if (host_mode_disable) {
+		dev_dbg(motg->phy.dev, "Ignore ID - host mode is disabled\n");
+		return;
+	}
 
 	if (motg->pdata->pmic_id_irq)
 		id_state = msm_otg_read_pmic_id_state(motg);
