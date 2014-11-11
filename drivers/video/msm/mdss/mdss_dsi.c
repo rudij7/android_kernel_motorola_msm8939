@@ -1444,6 +1444,13 @@ end:
 	return dsi_pan_node;
 }
 
+static int mdss_dsi_probe_status = -EPROBE_DEFER;
+
+int mdss_dsi_is_dsi_probed(void)
+{
+	return mdss_dsi_probe_status;
+}
+
 static int mdss_dsi_ctrl_probe(struct platform_device *pdev)
 {
 	int rc = 0, i = 0;
@@ -1602,6 +1609,8 @@ static int mdss_dsi_ctrl_probe(struct platform_device *pdev)
 		disable_irq(gpio_to_irq(ctrl_pdata->disp_te_gpio));
 	}
 	pr_debug("%s: Dsi Ctrl->%d initialized\n", __func__, index);
+	mdss_dsi_probe_status = 0;
+
 	return 0;
 
 error_pan_node:
