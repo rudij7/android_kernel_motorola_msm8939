@@ -274,6 +274,7 @@ enum usb_ctrl {
 		routing D+/D- from the USB HUB to the USB jack type B
 		for peripheral mode.
  * @bool phy_dvdd_always_on: PHY DVDD is supplied by always on PMIC LDO.
+ * @bool id_v_meas: If usb id voltage can be measured via ADC.
  */
 struct msm_otg_platform_data {
 	int *phy_init_seq;
@@ -309,6 +310,7 @@ struct msm_otg_platform_data {
 	int switch_sel_gpio;
 	bool phy_dvdd_always_on;
 	struct clk *system_clk;
+	bool id_v_meas;
 };
 
 /* phy related flags */
