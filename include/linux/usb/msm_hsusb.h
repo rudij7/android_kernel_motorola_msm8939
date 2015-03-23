@@ -431,6 +431,7 @@ struct msm_otg_platform_data {
  * @dbg_idx: Dynamic debug buffer Index.
  * @dbg_lock: Dynamic debug buffer Lock.
  * @buf: Dynamic Debug Buffer.
+ * @falsesdp_retry_count: Counter for number of FALSE_SDP retries
  */
 struct msm_otg {
 	struct usb_phy phy;
@@ -572,6 +573,7 @@ struct msm_otg {
 	int ext_id_irq;
 	bool phy_irq_pending;
 	wait_queue_head_t	host_suspend_wait;
+	int falsesdp_retry_count;
 /* Maximum debug message length */
 #define DEBUG_MSG_LEN   128UL
 /* Maximum number of messages */
