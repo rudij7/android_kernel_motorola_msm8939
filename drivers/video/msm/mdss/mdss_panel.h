@@ -193,6 +193,7 @@ struct mdss_intf_recovery {
  *				<= 0: panel check fail
  *				>  0: panel check success
  * @MDSS_EVENT_SET_CABC: Set CABC mode, for Motorola "Dynamic CABC" feature.
+ * @MDSS_EVENT_ENABLE_HBM: Enable Motorola High Brightness Mode feature.
  */
 enum mdss_intf_events {
 	MDSS_EVENT_RESET = 1,
@@ -218,6 +219,7 @@ enum mdss_intf_events {
 	MDSS_EVENT_ENABLE_TE,
 	MDSS_EVENT_DSI_PANEL_STATUS,
 	MDSS_EVENT_SET_CABC,
+	MDSS_EVENT_ENABLE_HBM,
 };
 
 struct lcd_panel_info {
@@ -448,6 +450,8 @@ struct mdss_panel_info {
 
 	bool dynamic_cabc_enabled;
 	enum cabc_mode cabc_mode;
+	bool hbm_feature_enabled;
+	bool hbm_state;
 };
 
 struct mdss_panel_data {
