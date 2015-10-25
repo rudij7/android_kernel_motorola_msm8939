@@ -94,6 +94,7 @@
 #define CFG_E_REG			0x0E
 #define POLARITY_100_500_BIT		BIT(2)
 #define USB_CTRL_BY_PIN_BIT		BIT(1)
+#define HVDCP_5_9_BIT			BIT(4)
 
 #define CFG_11_REG			0x11
 #define PRIORITY_BIT			BIT(7)
@@ -476,16 +477,23 @@ static void smb_relax(struct smb_wakeup_source *source)
 	}
 }
 
+#define RETRY_COUNT 5
+int retry_sleep_ms[RETRY_COUNT] = {
+	10, 20, 30, 40, 50
+};
+
 static int __smb135x_read(struct smb135x_chg *chip, int reg,
 				u8 *val)
 {
 	s32 ret;
-	int i;
+	int retry_count = 0;
 
+retry:
 	ret = i2c_smbus_read_byte_data(chip->client, reg);
-	for (i = 0; ((ret < 0) && (i < 5)); i++) {
-		mdelay(5);
-		ret = i2c_smbus_read_byte_data(chip->client, reg);
+	if (ret < 0 && retry_count < RETRY_COUNT) {
+		/* sleep for few ms before retrying */
+		msleep(retry_sleep_ms[retry_count++]);
+		goto retry;
 	}
 	if (ret < 0) {
 		dev_err(chip->dev,
@@ -502,11 +510,18 @@ static int __smb135x_write(struct smb135x_chg *chip, int reg,
 						u8 val)
 {
 	s32 ret;
+	int retry_count = 0;
 
 	if (chip->factory_mode)
 		return 0;
 
+retry:
 	ret = i2c_smbus_write_byte_data(chip->client, reg, val);
+	if (ret < 0 && retry_count < RETRY_COUNT) {
+		/* sleep for few ms before retrying */
+		msleep(retry_sleep_ms[retry_count++]);
+		goto retry;
+	}
 	if (ret < 0) {
 		dev_err(chip->dev,
 			"i2c write fail: can't write %02x to %02x: %d\n",
@@ -4322,6 +4337,15 @@ static int smb135x_hw_init(struct smb135x_chg *chip)
 		return rc;
 	}
 
+	/* enable 9V HVDCP adapter support */
+	rc = smb135x_masked_write(chip, CFG_E_REG, HVDCP_5_9_BIT,
+							HVDCP_5_9_BIT);
+	if (rc < 0) {
+		dev_err(chip->dev,
+			"Couldn't request for 5 or 9V rc=%d\n", rc);
+		return rc;
+	}
+
 	__smb135x_charging(chip, chip->chg_enabled);
 
 	/* interrupt enabling - active low */
@@ -5871,6 +5895,21 @@ static const struct i2c_device_id smb135x_charger_id[] = {
 };
 MODULE_DEVICE_TABLE(i2c, smb135x_charger_id);
 
+static void smb135x_shutdown(struct i2c_client *client)
+{
+	int rc;
+	struct smb135x_chg *chip = i2c_get_clientdata(client);
+
+	/*
+	 * switch to 5V adapter to prevent any errorneous request of 12V
+	 * when USB D+ line pull-up regulator turns off.
+	 */
+	rc = smb135x_masked_write(chip, CFG_E_REG, HVDCP_5_9_BIT, 0);
+	if (rc < 0)
+		dev_err(chip->dev,
+			"Couldn't request for 5V rc=%d\n", rc);
+}
+
 static struct i2c_driver smb135x_charger_driver = {
 	.driver		= {
 		.name		= "smb135x-charger",
@@ -5881,6 +5920,7 @@ static struct i2c_driver smb135x_charger_driver = {
 	.probe		= smb135x_charger_probe,
 	.remove		= smb135x_charger_remove,
 	.id_table	= smb135x_charger_id,
+	.shutdown	= smb135x_shutdown,
 };
 
 module_i2c_driver(smb135x_charger_driver);
